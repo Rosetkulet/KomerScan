@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>KomerScan Mobile</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#dfe9f3" />
+
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(to right, #dfe9f3, #ffffff);
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+    }
+
+    .container {
+      background: #fff;
+      padding: 15px;
+      margin-top: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      max-width: 100%;
+      width: 100%;
+      text-align: center;
+    }
+
+    img {
+      width: 100%;
+      max-height: 150px;
+      object-fit: cover;
+      margin-bottom: 10px;
+      border-radius: 8px;
+    }
+
+    #reader {
+      margin: 10px auto;
+      width: 100%;
+      max-width: 300px;
+    }
+
+    button, select {
+      margin: 5px;
+      padding: 10px 16px;
+      font-size: 1em;
+      width: 90%;
+      max-width: 300px;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin-top: 10px;
+      width: 100%;
+      font-size: 0.9em;
+    }
+
+    th, td {
+      border: 1px solid #444;
+      padding: 6px;
+    }
+
+    th {
+      background: #eee;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <img src="https://via.placeholder.com/600x150.png?text=KomerScan+Banner" alt="KomerScan Banner" />
+    <h2>📋 KomerScan Mobile</h2>
+
+    <button onclick="setMode('in')">Time In</button>
+    <button onclick="setMode('out')">Time Out</button>
+    <span id="modeLabel" style="font-weight:bold;">Mode: Time In</span>
+
+    <div id="reader"></div>
+
+    <button onclick="exportCSV()">📤 Export to CSV</button>
+    <button onclick="resetAttendance()">🗑️ Reset Attendance</button>
+
+    <label for="sectionFilter">Filter by Section:</label>
+    <select id="sectionFilter" onchange="filterBySection()">
+      <option value="">All Sections</option>
+    </select>
+
+    <table id="attendanceTable">
+      <tr><th>Name</th><th>Section</th><th>Time In</th><th>Time Out</th></tr>
+    </table>
+  </div>
+
+  <script>
+    let db;
+    let records = {};
+    let mode = "in";
+
+    const request = indexedDB.open("AttendanceDB", 1);
+    request.onupgradeneeded = event => {
+      db = event.target.result;
+      db.createObjectStore("records", { keyPath: "key" });
+    };
+    request.onsuccess = event => {
+      db = event.target.result;
+      loadRecords();
+    };
+
+    function setMode(newMode) {
+      mode = newMode;
+      document.getElementById("modeLabel").innerText = "Mode: " + (mode === "in" ? "Time In" : "Time Out");
+    }
+
+    function onScanSuccess(decodedText) {
+      const [name, section] = decodedText.split("|").map(s => s.trim());
+      const now = new Date().toLocaleString();
+      const key = `${name}|${section}`;
+
+      if (!records[key]) {
+        records[key] = { name, section, timeIn: "", timeOut: "" };
+      }
+
+      if (mode === "in" && !records[key].timeIn) {
+        records[key].timeIn = now;
+      } else if (mode === "out" && !records[key].timeOut) {
+        records[key].timeOut = now;
+      }
+
+      saveRecord(name, section, records[key].timeIn, records[key].timeOut);
+      updateTable();
+    }
+
+    function saveRecord(name, section, timeIn, timeOut) {
+      const key = `${name}|${section}`;
+      const tx = db.transaction("records", "readwrite");
+      const store = tx.objectStore("records");
+      store.put({ key, name, section, timeIn, timeOut });
+    }
+
+    function loadRecords() {
+      const tx = db.transaction("records", "readonly");
+      const store = tx.objectStore("records");
+      const getAll = store.getAll();
+
+      getAll.onsuccess = () => {
+        getAll.result.forEach(r => {
+          records[r.key] = {
+            name: r.name,
+            section: r.section,
+            timeIn: r.timeIn,
+            timeOut: r.timeOut
+          };
+        });
+        updateTable();
+      };
+    }
+
+    function updateTable() {
+      const table = document.getElementById("attendanceTable");
+      const dropdown = document.getElementById("sectionFilter");
+
+      table.innerHTML = "<tr><th>Name</th><th>Section</th><th>Time In</th><th>Time Out</th></tr>";
+      const sections = new Set();
+
+      for (let key in records) {
+        const r = records[key];
+        sections.add(r.section);
+      }
+
+      dropdown.innerHTML = '<option value="">All Sections</option>';
+      sections.forEach(section => {
+        const option = document.createElement("option");
+        option.value = section;
+        option.textContent = section;
+        dropdown.appendChild(option);
+      });
+
+      filterBySection();
+    }
+
+    function filterBySection() {
+      const selected = document.getElementById("sectionFilter").value;
+      const table = document.getElementById("attendanceTable");
+
+      table.innerHTML = "<tr><th>Name</th><th>Section</th><th>Time In</th><th>Time Out</th></tr>";
+
+      for (let key in records) {
+        const r = records[key];
+        if (selected === "" || r.section === selected) {
+          table.innerHTML += `<tr>
+            <td>${r.name}</td>
+            <td>${r.section}</td>
+            <td>${r.timeIn}</td>
+            <td>${r.timeOut}</td>
+          </tr>`;
+        }
+      }
+    }
+
+    function exportCSV() {
+      let csv = "Name,Section,Time In,Time Out\n";
+      for (let key in records) {
+        let r = records[key];
+        csv += `${r.name},${r.section},${r.timeIn},${r.timeOut}\n`;
+      }
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "attendance.csv";
+      a.click();
+    }
+
+    function resetAttendance() {
+      if (!confirm("Are you sure you want to reset all attendance records?")) return;
+      records = {};
+      const tx = db.transaction("records", "readwrite");
+      const store = tx.objectStore("records");
+      store.clear().onsuccess = () => {
+        updateTable();
+        alert("Attendance records have been reset.");
+      };
+    }
+
+    const html5QrCode = new Html5Qrcode("reader");
+    html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 250 },
+      onScanSuccess,
+      errorMessage => console.warn("QR scan error:", errorMessage)
+    ).catch(err => {
+      console.error("Camera start failed:", err);
+      alert("Unable to access camera. Please check permissions or try a different browser.");
+    });
+
+    if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("service-worker.js")
+    .then(() => console.log("Service Worker registered"))
+    .catch(err => console.error("Service Worker registration failed:", err));
+}
+
+  </script>
+</body>
+</html>
