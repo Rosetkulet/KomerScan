@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>KomerScan Mobile</title>
+  <title>KomerScan Attendance</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="manifest" href="manifest.json" />
-<meta name="theme-color" content="#dfe9f3" />
-
+  <meta name="theme-color" content="#dfe9f3" />
   <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -26,7 +26,7 @@
       margin-top: 20px;
       border-radius: 12px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      max-width: 100%;
+      max-width: 600px;
       width: 100%;
       text-align: center;
     }
@@ -73,7 +73,7 @@
 <body>
   <div class="container">
     <img src="https://via.placeholder.com/600x150.png?text=KomerScan+Banner" alt="KomerScan Banner" />
-    <h2>📋 KomerScan Mobile</h2>
+    <h2>📋 KomerScan Attendance</h2>
 
     <button onclick="setMode('in')">Time In</button>
     <button onclick="setMode('out')">Time Out</button>
@@ -81,7 +81,7 @@
 
     <div id="reader"></div>
 
-    <button onclick="exportCSV()">📤 Export to CSV</button>
+    <button onclick="exportExcelBySection()">📤 Export to Excel</button>
     <button onclick="resetAttendance()">🗑️ Reset Attendance</button>
 
     <label for="sectionFilter">Filter by Section:</label>
@@ -200,18 +200,28 @@
       }
     }
 
-    function exportCSV() {
-      let csv = "Name,Section,Time In,Time Out\n";
+    function exportExcelBySection() {
+      const workbook = XLSX.utils.book_new();
+      const sections = {};
+
       for (let key in records) {
-        let r = records[key];
-        csv += `${r.name},${r.section},${r.timeIn},${r.timeOut}\n`;
+        const r = records[key];
+        if (!sections[r.section]) sections[r.section] = [];
+        sections[r.section].push({
+          Name: r.name,
+          Section: r.section,
+          "Time In": r.timeIn,
+          "Time Out": r.timeOut
+        });
       }
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "attendance.csv";
-      a.click();
+
+      for (let section in sections) {
+        const sheetData = sections[section];
+        const worksheet = XLSX.utils.json_to_sheet(sheetData);
+        XLSX.utils.book_append_sheet(workbook, worksheet, section);
+      }
+
+      XLSX.writeFile(workbook, "attendance_by_section.xlsx");
     }
 
     function resetAttendance() {
@@ -237,11 +247,10 @@
     });
 
     if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("service-worker.js")
-    .then(() => console.log("Service Worker registered"))
-    .catch(err => console.error("Service Worker registration failed:", err));
-}
-
+      navigator.serviceWorker.register("service-worker.js")
+        .then(() => console.log("Service Worker registered"));
+    }
   </script>
 </body>
 </html>
+
